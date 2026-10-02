@@ -1,0 +1,40 @@
+{
+    "$schema": "https://raw.githubusercontent.com/LuaLS/vscode-lua/master/setting/schema.json",
+    "runtime.version": "Lua 5.4",
+    "runtime.nonstandardSymbol": [
+        "/**/",
+        "`",
+        "+=",
+        "-=",
+        "*=",
+        "/=",
+        "<<=",
+        ">>=",
+        "&=",
+        "|=",
+        "^="
+    ],
+    "workspace.library": [
+        "types"
+    ],
+    "workspace.ignoreDir": [
+        "config/overrides",
+        "data/overrides"
+    ],
+    "workspace.checkThirdParty": false,
+    "diagnostics.globals": [
+        "UgCore",
+        "MySQL"
+    ],
+    "type.weakUnionCheck": false,
+    "type.weakNilCheck": false,
+    "diagnostics.severity": {
+        "undefined-global": "Error",
+        "undefined-field": "Error",
+        "param-type-mismatch": "Error",
+        "assign-type-mismatch": "Error",
+        "return-type-mismatch": "Error",
+        "missing-parameter": "Error",
+        "missing-return": "Error"
+    }
+}
