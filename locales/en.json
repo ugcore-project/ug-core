@@ -1,0 +1,19 @@
+{
+    "connection": {
+        "starting": "The server is starting. Please wait.",
+        "notReady": "The server is not ready. Try again later."
+    },
+    "guard": {
+        "kicked": "You were disconnected from the server.",
+        "banned": "You are banned from this server."
+    },
+    "identity": {
+        "banned": "You are banned from this server.",
+        "bannedUntil": "You are banned from this server until {date} UTC.",
+        "missingIdentifier": "A {type} identifier is required to join this server.",
+        "unverified": "Your connection could not be verified. Try again later."
+    },
+    "players": {
+        "kicked": "You were disconnected from the server."
+    }
+}

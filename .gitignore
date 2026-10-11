@@ -39,3 +39,7 @@ luac.out
 *.x86_64
 *.hex
 
+
+# ug-core owner config, generated on first boot
+/config/*
+!/config/.gitkeep

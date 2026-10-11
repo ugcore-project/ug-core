@@ -1,0 +1,33 @@
+name: PR title
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions: {}
+
+jobs:
+  title:
+    name: Conventional Commits title
+    runs-on: ubuntu-latest
+    steps:
+      # The title is untrusted input. It reaches the script through an environment variable, never through ${{ }} in run.
+      - name: Check
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          types='feat|fix|refactor|perf|docs|test|build|ci|chore|revert|style'
+          scopes='core|players|characters|accounts|jobs|gangs|permissions|identity|sessions|modules|callback|network|events|lifecycle|hooks|database|exports|config|locale|ci|deps|commands|guard'
+          pattern="^(${types})(\((${scopes})\))?!?: [a-z0-9](.*[^.])?$"
+
+          if [ "${#TITLE}" -gt 72 ]; then
+            echo "::error::PR title is ${#TITLE} characters. The maximum is 72."
+            exit 1
+          fi
+
+          if ! printf '%s' "$TITLE" | grep -Eq "$pattern"; then
+            echo "::error::PR title MUST be a Conventional Commit: type(scope): lowercase imperative subject, no trailing period."
+            echo "Types: ${types//|/, }"
+            echo "Scopes: ${scopes//|/, }"
+            exit 1
+          fi
