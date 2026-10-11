@@ -206,7 +206,18 @@ H.Test('Players move items into an open stash, and it is saved', function()
     wait(30)
 
     H.Assert(saved['stash:armory'] ~= nil, 'stash not saved')
-    H.Equal(logs[#logs].inventory, 'stash:armory')
+
+    -- Each inventory saves its rows in its own transaction. Which one flushes first is not defined.
+    local rows = {}
+
+    for _, row in ipairs(logs) do
+        rows[row.inventory] = { item = row.item, amount = row.amount }
+    end
+
+    H.Equal(rows, {
+        ['player:1'] = { item = 'water', amount = -2 },
+        ['stash:armory'] = { item = 'water', amount = 2 },
+    })
 end)
 
 H.Test('Walking away closes the stash without a flag', function()
