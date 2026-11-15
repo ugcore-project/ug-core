@@ -1,0 +1,124 @@
+name: Release
+
+# On main, release-please keeps a release PR open that bumps the manifest version and CHANGELOG.md
+# from Conventional Commits. Merging it tags vX.Y.Z and creates the GitHub release; this workflow then
+# attaches the archive owners install and opens a pull request that brings the release commit back to dev.
+# Run it by hand with a tag to package that release again and attach its archive, for example after a failed
+# upload.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to package again, such as v1.0.0
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  ci:
+    name: CI
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+
+  release-please:
+    name: Release PR and tag
+    needs: ci
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    outputs:
+      created: ${{ steps.release.outputs.release_created }}
+      tag: ${{ steps.release.outputs.tag_name }}
+      version: ${{ steps.release.outputs.version }}
+    steps:
+      # Reads release-please-config.json and .release-please-manifest.json.
+      # target-branch is required: without it release-please targets the default branch, dev.
+      - id: release
+        uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        with:
+          target-branch: main
+
+  package:
+    name: Archive
+    needs: [ci, release-please]
+    # always() lets a manual run go on while release-please is skipped. CI MUST still pass.
+    if: always() && needs.ci.result == 'success' && (needs.release-please.outputs.created == 'true' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      # The tag reaches the shell through env only, and MUST look like vX.Y.Z.
+      - name: Resolve the release
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+          RELEASE_TAG: ${{ needs.release-please.outputs.tag }}
+        run: |
+          tag="${INPUT_TAG:-$RELEASE_TAG}"
+          if [[ ! "$tag" =~ ^v[0-9]+[.][0-9]+[.][0-9]+$ ]]; then
+            echo "::error::\"$tag\" is not a release tag such as v1.0.0."
+            exit 1
+          fi
+          echo "TAG=$tag" >> "$GITHUB_ENV"
+          echo "VERSION=${tag#v}" >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.TAG }}
+
+      - name: Install Lua 5.4
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q lua5.4
+
+      # release-please bumped the manifest in the release PR: a mismatch means the config lost track of it.
+      - name: Check the version
+        run: |
+          if ! grep -q "^version '${VERSION}'" fxmanifest.lua; then
+            echo "::error::fxmanifest.lua does not say version '${VERSION}'. Check extra-files in release-please-config.json."
+            exit 1
+          fi
+
+      - name: Package
+        run: bash .github/scripts/package.sh "$VERSION" "$RUNNER_TEMP/dist"
+
+      - name: Attach to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # No version in the name: releases/latest/download/ug-core.zip always serves the latest release.
+          gh release upload "$TAG" \
+            "$RUNNER_TEMP/dist/ug-core.zip" \
+            "$RUNNER_TEMP/dist/ug-core.zip.sha256" \
+            --clobber
+
+  # The release commit lands on main only. Without this, dev keeps the old version and CHANGELOG.md,
+  # and the next dev to main pull request conflicts with it.
+  sync-dev:
+    name: Sync dev
+    needs: release-please
+    if: needs.release-please.outputs.created == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Open the pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          VERSION: ${{ needs.release-please.outputs.version }}
+        run: |
+          gh pr create --repo "$REPO" --base dev --head main \
+            --title "chore: sync release ${VERSION} into dev" \
+            --body "Brings the release commit of ${VERSION} back to dev. Merge it with a merge commit, never squash."
