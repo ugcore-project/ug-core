@@ -8,6 +8,8 @@
 
 ---Factory for per-character roles with grades, such as jobs and gangs.
 ---Definitions come from a data config, assignments from one table, the current role from a public statebag.
+---Resources MAY register definitions too. The owner's config wins over a registration, and the first resource to
+---register a name keeps it. Registrations stay until ug-core restarts, so players on duty are never stranded.
 ---@class UgCore.Internal.Assignments
 local Assignments = {}
 UgCore.Internal.Assignments = Assignments
@@ -42,10 +44,12 @@ UgCore.Internal.Assignments = Assignments
 ---@field duty boolean
 ---@field changed string event emitted with `(source, assignment, previous)`
 ---@field dutyChanged? string event emitted with `(source, onDuty)`
+---@field registered string event emitted with `(name, resource)`
 ---@field beforeSet string hook with `{ source, name, grade }`
 
 local Utils = UgCore.Internal.Utils
 local Events = UgCore.Events
+local Logger = UgCore.Logger
 local Repository = UgCore.Internal.Database.Repository
 local InternalHooks = UgCore.Internal.Hooks
 local Errors = UgCore.Enums.Errors
@@ -54,6 +58,7 @@ local NAME_PATTERN = '^%l[%w_]*$'
 local MAX_NAME = 32
 local MAX_GRADES = 32
 local MAX_SALARY = 1000000000
+local RESOURCE = GetCurrentResourceName()
 
 ---Validates one definition of a data config. Use as its `validate`.
 ---@param entry any
@@ -101,12 +106,38 @@ end
 function Assignments.Create(spec, ctx)
     local api = {}
 
-    ---@type table<integer, { name: string, grade: integer, onDuty: boolean }> source -> current role
+    ---A saved role whose definition no config or resource provides yet. The character holds the default meanwhile,
+    ---and gets it back once a resource registers it. The saved row is never overwritten in between.
+    ---@alias UgPendingRole { name: string, grade: integer }
+
+    ---@type table<integer, { name: string, grade: integer, onDuty: boolean, pending?: UgPendingRole }> source -> current role
     local current = {}
+
+    ---@type table<string, { definition: UgAssignmentDefinition, resource: string }> definitions from resources
+    local registered = {}
 
     ---@return table<string, UgAssignmentDefinition>
     local function definitions()
         return UgCore.Config.Get(spec.config)
+    end
+
+    ---The owner's definition, else a registered one.
+    ---@param name any
+    ---@return UgAssignmentDefinition?
+    local function lookup(name)
+        if type(name) ~= 'string' then
+            return nil
+        end
+
+        local configured = UgCore.Config.Get(spec.config, name)
+
+        if configured then
+            return configured
+        end
+
+        local entry = registered[name]
+
+        return entry and Utils.Table.DeepCopy(entry.definition) or nil
     end
 
     if not definitions()[spec.default] then
@@ -117,7 +148,7 @@ function Assignments.Create(spec, ctx)
     ---@return UgAssignment?
     local function describe(source)
         local role = current[source]
-        local definition = role and definitions()[role.name]
+        local definition = role and lookup(role.name)
         local grade = definition and definition.grades[role.grade]
 
         if not role or not definition or not grade then
@@ -150,7 +181,7 @@ function Assignments.Create(spec, ctx)
     ---@param grade any
     ---@return boolean
     local function valid(name, grade)
-        local definition = type(name) == 'string' and definitions()[name] or nil
+        local definition = lookup(name)
 
         return definition ~= nil and math.type(grade) == 'integer' and definition.grades[grade] ~= nil
     end
@@ -158,7 +189,7 @@ function Assignments.Create(spec, ctx)
     ---@param name string
     ---@return boolean
     local function defaultDuty(name)
-        local definition = definitions()[name]
+        local definition = lookup(name)
 
         return definition ~= nil and definition.defaultDuty == true
     end
@@ -255,7 +286,7 @@ function Assignments.Create(spec, ctx)
     ---@return boolean
     function api.Exists(name, grade)
         if grade == nil then
-            return type(name) == 'string' and definitions()[name] ~= nil
+            return lookup(name) ~= nil
         end
 
         return valid(name, grade)
@@ -264,7 +295,96 @@ function Assignments.Create(spec, ctx)
     ---@param name string
     ---@return UgAssignmentDefinition?
     function api.GetDefinition(name)
-        return type(name) == 'string' and definitions()[name] or nil
+        return lookup(name)
+    end
+
+    ---Every definition, from the config and from resources.
+    ---@return table<string, UgAssignmentDefinition>
+    function api.GetAll()
+        local all = definitions()
+
+        for name, entry in pairs(registered) do
+            if not all[name] then
+                all[name] = Utils.Table.DeepCopy(entry.definition)
+            end
+        end
+
+        return all
+    end
+
+    ---Where a definition comes from: `config`, the registering resource, or nil when unknown.
+    ---@param name string
+    ---@return string?
+    function api.Source(name)
+        if type(name) ~= 'string' then
+            return nil
+        end
+
+        if UgCore.Config.Get(spec.config, name) then
+            return 'config'
+        end
+
+        return registered[name] and registered[name].resource or nil
+    end
+
+    ---Gives players whose saved role just got a definition their role back.
+    ---@param name string
+    local function resolve(name)
+        for source, role in pairs(current) do
+            local pending = role.pending
+
+            if pending and pending.name == name and valid(pending.name, pending.grade) then
+                local previous = describe(source)
+
+                current[source] = {
+                    name = pending.name,
+                    grade = pending.grade,
+                    onDuty = defaultDuty(pending.name),
+                }
+                publish(source)
+                Events.Emit(spec.changed, source, describe(source), previous)
+            end
+        end
+    end
+
+    ---Registers a definition from a resource. Raises on a malformed definition.
+    ---@param name string
+    ---@param definition UgAssignmentDefinition
+    ---@param resource? string the registering resource, ug-core by default
+    ---@return boolean registered false when the owner's config or another resource defines the name
+    function api.Register(name, definition, resource)
+        local ok, message = Assignments.ValidateDefinition(definition, name)
+
+        if not ok then
+            Utils.Raise(3, '%s.Register("%s"): %s', spec.namespace, tostring(name), tostring(message))
+        end
+
+        resource = resource or RESOURCE
+
+        if UgCore.Config.Get(spec.config, name) then
+            ctx.logger.Debug('%s registers %s "%s". config/%s.lua defines it and wins.', resource, spec.config, name, spec.config)
+
+            return false
+        end
+
+        local existing = registered[name]
+
+        if existing and existing.resource ~= resource then
+            Logger.Warn('%s registers %s "%s", which %s registered first. Keeping the definition of %s.', resource, spec.config, name,
+                existing.resource, existing.resource)
+
+            return false
+        end
+
+        registered[name] = {
+            definition = Utils.Table.DeepCopy(definition),
+            resource = resource,
+        }
+        ctx.logger.Debug('%s registered %s "%s".', resource, spec.config, name)
+        Events.Emit(spec.registered, name, resource)
+        resolve(name)
+
+        return true
     end
 
     if spec.duty then
@@ -315,10 +435,17 @@ function Assignments.Create(spec, ctx)
             end
 
             local name, grade = row and row.name, row and math.tointeger(row.grade)
+            local pending = nil
 
             if not valid(name, grade) then
-                if row then
-                    ctx.logger.Warn('character %d had unknown %s "%s". Using "%s".', characterId, spec.config, tostring(name), spec.default)
+                -- A resource MAY register it later, such as one that starts after ug-core.
+                if row and type(name) == 'string' and math.type(grade) == 'integer' then
+                    pending = {
+                        name = name,
+                        grade = grade,
+                    }
+                    ctx.logger.Info('character %d has %s "%s", which nothing defines yet. "%s" until a resource registers it.',
+                        characterId, spec.config, name, spec.default)
                 end
 
                 name, grade = spec.default, 1
@@ -331,6 +458,7 @@ function Assignments.Create(spec, ctx)
                 name = name,
                 grade = grade,
                 onDuty = defaultDuty(name),
+                pending = pending,
             }
             publish(source)
 

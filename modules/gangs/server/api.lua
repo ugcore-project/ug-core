@@ -56,6 +56,29 @@ function Gangs.GetDefinition(name)
     return impl.GetDefinition(name)
 end
 
+---Every definition, from config/gangs.lua and from resources.
+---@return table<string, UgAssignmentDefinition>
+function Gangs.GetAll()
+    return impl.GetAll()
+end
+
+---Registers a gang a resource needs, so owners do not have to add it by hand. config/gangs.lua wins: a
+---gang the owner defines keeps the owner's definition. The first resource to register a name keeps it.
+---Registrations stay until ug-core restarts. Raises on a malformed definition.
+---@param name string lowercase letters, digits and underscores
+---@param definition UgAssignmentDefinition
+---@return boolean registered false when config/gangs.lua or another resource defines the name
+function Gangs.Register(name, definition)
+    return impl.Register(name, definition, GetInvokingResource())
+end
+
+---Where a definition comes from: `config`, the registering resource, or nil when unknown.
+---@param name string
+---@return string?
+function InternalGangs.Source(name)
+    return impl.Source(name)
+end
+
 ---@param ctx UgModuleContext
 function InternalGangs.Init(ctx)
     local Enums = UgCore.Enums
@@ -68,6 +91,7 @@ function InternalGangs.Init(ctx)
         default = 'none',
         duty = false,
         changed = Enums.Events.Gangs.Changed,
+        registered = Enums.Events.Gangs.Registered,
         beforeSet = Enums.Hooks.Gangs.BeforeSet,
     }, ctx)
 end

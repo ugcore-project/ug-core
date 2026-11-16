@@ -10,6 +10,7 @@
 UgCore.Enums.Events.Jobs = {
     Changed = 'ug-core:Jobs:Changed',
     DutyChanged = 'ug-core:Jobs:DutyChanged',
+    Registered = 'ug-core:Jobs:Registered',
 }
 
 ---@enum UgJobsHook

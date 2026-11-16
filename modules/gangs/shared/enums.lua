@@ -9,6 +9,7 @@
 ---@enum UgGangsEvent
 UgCore.Enums.Events.Gangs = {
     Changed = 'ug-core:Gangs:Changed',
+    Registered = 'ug-core:Gangs:Registered',
 }
 
 ---@enum UgGangsHook

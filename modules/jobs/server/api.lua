@@ -70,6 +70,29 @@ function Jobs.GetDefinition(name)
     return impl.GetDefinition(name)
 end
 
+---Every definition, from config/jobs.lua and from resources.
+---@return table<string, UgAssignmentDefinition>
+function Jobs.GetAll()
+    return impl.GetAll()
+end
+
+---Registers a job a resource needs, so owners do not have to add it by hand. config/jobs.lua wins: a
+---job the owner defines keeps the owner's definition. The first resource to register a name keeps it.
+---Registrations stay until ug-core restarts. Raises on a malformed definition.
+---@param name string lowercase letters, digits and underscores
+---@param definition UgAssignmentDefinition
+---@return boolean registered false when config/jobs.lua or another resource defines the name
+function Jobs.Register(name, definition)
+    return impl.Register(name, definition, GetInvokingResource())
+end
+
+---Where a definition comes from: `config`, the registering resource, or nil when unknown.
+---@param name string
+---@return string?
+function InternalJobs.Source(name)
+    return impl.Source(name)
+end
+
 ---@param ctx UgModuleContext
 function InternalJobs.Init(ctx)
     local Enums = UgCore.Enums
@@ -83,6 +106,7 @@ function InternalJobs.Init(ctx)
         duty = true,
         changed = Enums.Events.Jobs.Changed,
         dutyChanged = Enums.Events.Jobs.DutyChanged,
+        registered = Enums.Events.Jobs.Registered,
         beforeSet = Enums.Hooks.Jobs.BeforeSet,
     }, ctx)
 end

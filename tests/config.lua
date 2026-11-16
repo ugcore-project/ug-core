@@ -650,7 +650,7 @@ H.Test('ug is limited to the console and ug.admin', function()
     H.Equal(H.RunCommand('ug', 0, {
         'nope',
     }), {
-        'Usage: ug <config|database|groups|guard|hooks|inventory|items|lifecycle|modules|needs|shops|version|weapon>',
+        'Usage: ug <config|database|gangs|groups|guard|hooks|inventory|items|jobs|lifecycle|modules|needs|shops|version|weapon>',
     })
     H.Equal(H.RunCommand('ug', 0, { 'config', 'nope' }), { 'Unknown config "nope".' })
 end)

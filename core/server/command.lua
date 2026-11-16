@@ -21,7 +21,7 @@ local Updates = UgCore.Internal.Updates
 
 local COMMAND = 'ug'
 local ACE = 'ug.admin'
-local USAGE = 'Usage: ug <config|database|groups|guard|hooks|inventory|items|lifecycle|modules|needs|shops|version|weapon>'
+local USAGE = 'Usage: ug <config|database|gangs|groups|guard|hooks|inventory|items|jobs|lifecycle|modules|needs|shops|version|weapon>'
 
 ---@param name string
 ---@param key string
@@ -235,6 +235,41 @@ subcommands.items = function(args)
 
         print(('  %-24s %-24s %7d g  %s%s'):format(itemName, item.label, item.weight, item.usable and 'usable' or '', weapon and ' weapon' or ''))
     end
+end
+
+---Lists jobs or gangs with their grades and where each definition comes from.
+---@param module string `jobs` or `gangs`
+---@param namespace { GetAll: fun(): table<string, UgAssignmentDefinition> }
+---@param internal { Source: fun(name: string): string? }
+local function listRoles(module, namespace, internal)
+    if not UgCore.Modules.IsEnabled(module) then
+        print(('The %s module is disabled.'):format(module))
+        return
+    end
+
+    local definitions = namespace.GetAll()
+    local names = {}
+
+    for name in pairs(definitions) do
+        names[#names + 1] = name
+    end
+
+    table.sort(names)
+    print(('%d %s:'):format(#names, module))
+
+    for _, name in ipairs(names) do
+        local definition = definitions[name]
+
+        print(('  %-20s %-24s %2d grade(s)  %s'):format(name, definition.label, #definition.grades, internal.Source(name) or '?'))
+    end
+end
+
+subcommands.jobs = function()
+    listRoles('jobs', UgCore.Jobs, UgCore.Internal.Jobs)
+end
+
+subcommands.gangs = function()
+    listRoles('gangs', UgCore.Gangs, UgCore.Internal.Gangs)
 end
 
 ---@param args string[]
